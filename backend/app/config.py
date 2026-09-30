@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
     root_folder_id: str = ""
+    frontend_url: str = "http://localhost:8000"
     model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", extra="ignore")
 
 settings = Settings()
