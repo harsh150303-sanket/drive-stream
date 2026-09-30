@@ -8,7 +8,9 @@ const state = {
     sort: 'name',
     search: '',
     player: null,
-    navPath: []
+    navPath: [],
+    folderCache: new Map(),
+    lastProgressSave: 0
 };
 
 const $ = s => document.querySelector(s);
@@ -173,6 +175,7 @@ function renderView() {
 
     if (state.player) {
         m.innerHTML = playerHTML(state.player);
+        requestAnimationFrame(wirePlayer);
         return;
     }
 
@@ -324,16 +327,21 @@ function breadcrumbHTML() {
 }
 
 
-async function openRoot(pushHistory = true) {
+async function openRoot(pushHistory = true, force = false) {
     try {
-        const x = await api('/api/drive/root');
+        let items = state.folderCache.get('root');
+        if (!items || force) {
+            const x = await api('/api/drive/root');
+            items = x.items;
+            state.folderCache.set('root', items);
+        }
 
         state.folder = {
             id: 'root',
             name: 'My Drive'
         };
 
-        state.items = x.items;
+        state.items = items;
         state.view = 'home';
         state.player = null;
         state.navPath = [];
@@ -355,14 +363,18 @@ async function openRoot(pushHistory = true) {
 }
 
 
-async function openFolder(id, pushHistory = true, folderName = null) {
+async function openFolder(id, pushHistory = true, folderName = null, force = false) {
     try {
         if (id === 'root') {
-            await openRoot(pushHistory);
+            await openRoot(pushHistory, force);
             return;
         }
-
-        const x = await api('/api/folders/' + encodeURIComponent(id));
+        let items = state.folderCache.get(id);
+        if (!items || force) {
+            const x = await api('/api/folders/' + encodeURIComponent(id));
+            items = x.items;
+            state.folderCache.set(id, items);
+        }
 
         let name = folderName || 'Folder';
 
@@ -383,7 +395,7 @@ async function openFolder(id, pushHistory = true, folderName = null) {
             name
         };
 
-        state.items = x.items;
+        state.items = items;
         state.view = 'all';
         state.player = null;
 
@@ -570,10 +582,9 @@ async function connect() {
 
 async function openVideo(id) {
     try {
-        const f = await api('/api/videos/' + id);
-
+        let f = state.items.find(x => x.id === id);
+        if (!f) f = await api('/api/videos/' + encodeURIComponent(id));
         state.player = f;
-
         renderView();
     } catch (e) {
         toast(e.message);
@@ -952,6 +963,7 @@ async function saveProgress(force = false) {
     if (!force && v.currentTime < 1) return;
 
     try {
+        state.lastProgressSave = Math.floor(v.currentTime);
         await api(
             '/api/history',
             {
@@ -977,8 +989,8 @@ async function saveProgress(force = false) {
 function wirePlayer() {
     const v = $('#video');
 
-    if (!v) return;
-
+    if (!v || v.dataset.wired === '1') return;
+    v.dataset.wired = '1';
     setupKeyboard();
 
     const h = state.history.find(
@@ -997,9 +1009,8 @@ function wirePlayer() {
     v.addEventListener(
         'timeupdate',
         () => {
-            if (Math.floor(v.currentTime) % 10 === 0) {
-                saveProgress();
-            }
+            const second = Math.floor(v.currentTime);
+            if (second > 0 && second % 10 === 0 && second !== state.lastProgressSave) saveProgress();
         }
     );
 
@@ -1087,21 +1098,7 @@ function nav(v) {
 }
 
 
-/* =========================
-   PLAYER OBSERVER
-========================= */
 
-const observer = new MutationObserver(() => {
-    wirePlayer();
-});
-
-observer.observe(
-    document.body,
-    {
-        childList: true,
-        subtree: true
-    }
-);
 
 
 /* =========================
