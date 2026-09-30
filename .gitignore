@@ -1,0 +1,11 @@
+.env
+data/
+tokens/
+*.db
+__pycache__/
+*.py[cod]
+node_modules/
+dist/
+.venv/
+venv/
+*.log
