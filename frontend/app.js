@@ -484,6 +484,7 @@ function card(f) {
                     ? `openFolder('${f.id}', true, '${esc(f.name)}')`
                     : `openVideo('${f.id}')`
             }"
+            ${!f.isFolder ? `onmouseenter="schedulePreview('${f.id}', this)" onmouseleave="stopPreview('${f.id}', this)"` : ''}
         >
             <div class="thumb">
 
@@ -498,6 +499,9 @@ function card(f) {
                         `
                         : ''
                 }
+
+
+                ${!f.isFolder ? `<video class="preview" muted playsinline preload="none" aria-hidden="true"></video>` : ''}
 
                 <div class="icon">
                     ${f.isFolder ? '📁' : '🎬'}
@@ -1100,6 +1104,48 @@ function nav(v) {
 
 
 
+
+/* =========================
+   30-SECOND PREVIEWS
+========================= */
+
+const previewTimers = new Map();
+
+function schedulePreview(id, cardEl) {
+    if (previewTimers.has(id)) return;
+    previewTimers.set(id, setTimeout(() => startPreview(id, cardEl), 500));
+}
+
+function startPreview(id, cardEl) {
+    previewTimers.delete(id);
+    const video = cardEl.querySelector('.preview');
+    if (!video) return;
+
+    video.src = '/api/videos/' + encodeURIComponent(id) + '/stream';
+    video.currentTime = 0;
+    video.muted = true;
+
+    const stop = () => {
+        if (video.currentTime >= 30) stopPreview(id, cardEl);
+    };
+    video.addEventListener('timeupdate', stop);
+    video.play().catch(() => {});
+}
+
+function stopPreview(id, cardEl) {
+    const timer = previewTimers.get(id);
+    if (timer) {
+        clearTimeout(timer);
+        previewTimers.delete(id);
+    }
+
+    const video = cardEl?.querySelector('.preview');
+    if (video) {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+    }
+}
 
 /* =========================
    START
