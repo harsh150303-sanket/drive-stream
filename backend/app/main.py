@@ -14,7 +14,7 @@ from .drive.service import drive, is_video, FOLDER_MIME
 from .streaming.range import parse_range, RangeError
 
 app = FastAPI(title="DriveStream", version="1.0.0")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:8000", "http://127.0.0.1:8000"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:8000", "http://127.0.0.1:8000", settings.frontend_url], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 @app.on_event("startup")
 def startup(): init_db()
@@ -41,11 +41,11 @@ def auth_login():
 
 @app.get("/auth/callback")
 def auth_callback(code: str | None=None, state: str | None=None, error: str | None=None):
-    if error: return RedirectResponse(f"/?auth_error={quote(error)}")
-    if not code: return RedirectResponse("/?auth_error=missing_code")
+    if error: return RedirectResponse(f"{settings.frontend_url}/?auth_error={quote(error)}")
+    if not code: return RedirectResponse(f"{settings.frontend_url}/?auth_error=missing_code")
     try: oauth.handle_callback(code, state)
-    except Exception as e: return RedirectResponse(f"/?auth_error={quote(str(e)[:180])}")
-    return RedirectResponse("/?connected=1")
+    except Exception as e: return RedirectResponse(f"{settings.frontend_url}/?auth_error={quote(str(e)[:180])}")
+    return RedirectResponse(f"{settings.frontend_url}/?connected=1")
 
 @app.get("/api/root")
 def get_root(db: Session = Depends(get_db)):
