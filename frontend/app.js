@@ -182,7 +182,24 @@ function stopActivePlayer() {
     } catch {}
 }
 
+function stopAllPreviews() {
+    document.querySelectorAll('.preview').forEach(video => {
+        try {
+            video.pause();
+            video.ontimeupdate = null;
+            video.removeAttribute('src');
+            video.load();
+        } catch {}
+    });
+
+    if (typeof previewTimers !== 'undefined') {
+        previewTimers.forEach(timer => clearTimeout(timer));
+        previewTimers.clear();
+    }
+}
+
 function renderView() {
+    stopAllPreviews();
     const m = $('#main');
 
     if (state.player) {
