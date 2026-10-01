@@ -177,7 +177,8 @@ class DriveService:
         )
 
         headers = {
-            "Authorization": f"Bearer {creds.token}"
+            "Authorization": f"Bearer {creds.token}",
+            "Connection": "close",
         }
 
         if byte_range:
