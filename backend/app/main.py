@@ -51,19 +51,26 @@ def public_file(f, fav=False):
     return {"id":f.get("id"),"name":f.get("name"),"mimeType":f.get("mimeType"),"size":int(f["size"]) if f.get("size") else None,"modifiedTime":f.get("modifiedTime"),"createdTime":f.get("createdTime"),"parents":f.get("parents",[]),"thumbnail":f.get("thumbnailLink"),"isFolder":f.get("mimeType")==FOLDER_MIME,"favorite":fav}
 
 @app.get("/api/auth/status")
-def auth_status(db: Session = Depends(get_db)):
-    return {"authenticated": oauth.credentials() is not None, "rootFolderId": setting(db,"root_folder_id")}
+def auth_status(request: Request, db: Session = Depends(get_db)):
+    sid = session_id(request)
+    return {"authenticated": oauth.credentials(sid) is not None, "rootFolderId": setting(db, "root_folder_id", sid)}
 
 @app.get("/api/auth/login")
-def auth_login():
+def auth_login(request: Request):
+    session_id(request)
     url, state = oauth.authorization_url()
+    request.session["oauth_state"] = state
     return {"url": url, "state": state}
 
 @app.get("/auth/callback")
-def auth_callback(code: str | None=None, state: str | None=None, error: str | None=None):
+def auth_callback(request: Request, code: str | None=None, state: str | None=None, error: str | None=None):
     if error: return RedirectResponse(f"{settings.frontend_url}/?auth_error={quote(error)}")
     if not code: return RedirectResponse(f"{settings.frontend_url}/?auth_error=missing_code")
-    try: oauth.handle_callback(code, state)
+    sid = session_id(request)
+    expected_state = request.session.pop("oauth_state", None)
+    if not state or not expected_state or not hmac.compare_digest(state, expected_state):
+        return RedirectResponse(f"{settings.frontend_url}/?auth_error=invalid_state")
+    try: oauth.handle_callback(code, state, sid)
     except Exception as e: return RedirectResponse(f"{settings.frontend_url}/?auth_error={quote(str(e)[:180])}")
     return RedirectResponse(f"{settings.frontend_url}/?connected=1")
 
