@@ -75,26 +75,29 @@ def auth_callback(request: Request, code: str | None=None, state: str | None=Non
     return RedirectResponse(f"{settings.frontend_url}/?connected=1")
 
 @app.get("/api/root")
-def get_root(db: Session = Depends(get_db)):
-    root = setting(db,"root_folder_id") or settings.root_folder_id
+def get_root(request: Request, db: Session = Depends(get_db)):
+    sid = session_id(request)
+    root = setting(db,"root_folder_id", sid) or settings.root_folder_id
     if not root: return {"selected":False,"folders":[]}
-    try: f=drive.get_file(root); return {"selected":True,"folder":public_file(f)}
+    try: f=drive.get_file(root, sid); return {"selected":True,"folder":public_file(f)}
     except Exception as e: raise HTTPException(502, "Unable to read the selected Drive folder.")
 
 @app.post("/api/root/{folder_id}")
-def set_root(folder_id: str, db: Session = Depends(get_db)):
+def set_root(folder_id: str, request: Request, db: Session = Depends(get_db)):
+    sid = session_id(request)
     try:
-        f=drive.get_file(folder_id)
+        f=drive.get_file(folder_id, sid)
         if f.get("mimeType") != FOLDER_MIME: raise HTTPException(400,"That Drive item is not a folder.")
     except HTTPException: raise
     except Exception: raise HTTPException(502,"Could not access that Drive folder.")
-    set_setting(db,"root_folder_id",folder_id)
+    set_setting(db,"root_folder_id",folder_id,sid)
     return {"ok":True,"folder":public_file(f)}
 
 @app.get("/api/drive/root")
-def drive_root(db: Session = Depends(get_db)):
+def drive_root(request: Request, db: Session = Depends(get_db)):
+    sid = session_id(request)
     try:
-        items = drive.list_root()
+        items = drive.list_root(sid)
     except PermissionError as e:
         raise HTTPException(401, str(e))
     except Exception:
@@ -111,30 +114,34 @@ def drive_root(db: Session = Depends(get_db)):
     }
 
 @app.get("/api/folders/{folder_id}")
-def folder(folder_id: str, db: Session = Depends(get_db)):
-    try: items=drive.list_children(folder_id)
+def folder(folder_id: str, request: Request, db: Session = Depends(get_db)):
+    sid = session_id(request)
+    try: items=drive.list_children(folder_id, sid)
     except PermissionError as e: raise HTTPException(401,str(e))
     except Exception: raise HTTPException(502,"Google Drive could not be read.")
     favs={x.google_drive_id for x in db.scalars(select(Favorite)).all()}
     return {"items":[public_file(x, x.get("id") in favs) for x in items if x.get("mimeType")==FOLDER_MIME or is_video(x)]}
 
 @app.get("/api/videos/{file_id}")
-def video(file_id: str, db: Session=Depends(get_db)):
-    try: f=drive.get_file(file_id)
+def video(file_id: str, request: Request, db: Session=Depends(get_db)):
+    sid = session_id(request)
+    try: f=drive.get_file(file_id, sid)
     except Exception: raise HTTPException(404,"Video not found or no longer accessible.")
     if not is_video(f): raise HTTPException(400,"This file is not a supported video.")
     fav=db.scalar(select(Favorite).where(Favorite.google_drive_id==file_id)) is not None
     return public_file(f,fav)
 
 @app.get("/api/videos/{file_id}/thumbnail")
-def thumbnail(file_id: str):
-    try: url=drive.thumbnail(file_id)
+def thumbnail(file_id: str, request: Request):
+    sid = session_id(request)
+    try: url=drive.thumbnail(file_id, sid)
     except Exception: raise HTTPException(404,"Thumbnail unavailable.")
     if not url: raise HTTPException(404,"Thumbnail unavailable.")
     return RedirectResponse(url)
 
 @app.get("/api/videos/{file_id}/stream")
 def stream(file_id: str, request: Request):
+    sid = session_id(request)
     try: meta=drive.get_file(file_id)
     except Exception: raise HTTPException(404,"Video not found or no longer accessible.")
     if not is_video(meta): raise HTTPException(400,"Unsupported video type.")
@@ -143,7 +150,7 @@ def stream(file_id: str, request: Request):
     try: br=parse_range(request.headers.get("range"), int(size))
     except RangeError: return Response(status_code=416, headers={"Content-Range":f"bytes */{size}"})
     upstream_range = f"bytes={br.start}-{br.end}" if br else None
-    try: r=drive.stream_request(file_id, upstream_range)
+    try: r=drive.stream_request(file_id, upstream_range, sid)
     except Exception: raise HTTPException(502,"Could not connect to Google Drive.")
     if r.status_code not in (200,206):
         r.close(); raise HTTPException(r.status_code,"Google Drive could not provide the video data.")
@@ -165,9 +172,10 @@ def stream(file_id: str, request: Request):
     return StreamingResponse(iterator(), status_code=status, headers=headers, media_type=meta.get("mimeType"))
 
 @app.get("/api/search")
-def search(q: str, db: Session=Depends(get_db)):
+def search(q: str, request: Request, db: Session=Depends(get_db)):
+    sid = session_id(request)
     try:
-        items = drive.search(None, q)
+        items = drive.search(None, q, sid)
     except Exception:
         raise HTTPException(502, "Search failed.")
 
@@ -217,7 +225,7 @@ def remove_favorite(file_id: str, db: Session=Depends(get_db)):
 @app.post("/api/sync")
 def sync(db: Session = Depends(get_db)):
     # Refresh My Drive; folder navigation reads Drive live.
-    items = drive.list_root()
+    items = drive.list_root(sid)
 
     for f in items:
         row = db.scalar(
