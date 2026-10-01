@@ -4,10 +4,10 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 
 from ..config import settings, TOKEN_DIR
+from ..database.db import SessionLocal, OAuthToken
 
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
-
 
 
 class OAuthManager:
@@ -49,18 +49,37 @@ class OAuthManager:
 
         return url, state
 
+    def _save_token(self, session_id: str, token_json: str):
+        db = SessionLocal()
+        try:
+            row = db.get(OAuthToken, session_id)
+            if row:
+                row.token_json = token_json
+            else:
+                db.add(OAuthToken(session_id=session_id, token_json=token_json))
+            db.commit()
+        finally:
+            db.close()
+
+    def _load_token(self, session_id: str):
+        db = SessionLocal()
+        try:
+            row = db.get(OAuthToken, session_id)
+            return row.token_json if row else None
+        finally:
+            db.close()
+
     def handle_callback(self, code: str, state: str | None, session_id: str):
         flow = self.flow(state=state)
-
         flow.fetch_token(code=code)
 
-        TOKEN_DIR.mkdir(parents=True, exist_ok=True)
+        token_json = flow.credentials.to_json()
+        self._save_token(session_id, token_json)
 
+        # Keep the local file as a fallback for local development/backwards compatibility.
+        TOKEN_DIR.mkdir(parents=True, exist_ok=True)
         token_file = TOKEN_DIR / f"{session_id}.json"
-        token_file.write_text(
-            flow.credentials.to_json(),
-            encoding="utf-8"
-        )
+        token_file.write_text(token_json, encoding="utf-8")
 
         try:
             token_file.chmod(0o600)
@@ -68,23 +87,35 @@ class OAuthManager:
             pass
 
     def credentials(self, session_id: str):
-        token_file = TOKEN_DIR / f"{session_id}.json"
-        if not token_file.exists():
+        token_json = self._load_token(session_id)
+
+        # Migrate an older file-based token into the database when one exists.
+        if not token_json:
+            token_file = TOKEN_DIR / f"{session_id}.json"
+            if token_file.exists():
+                try:
+                    token_json = token_file.read_text(encoding="utf-8")
+                    self._save_token(session_id, token_json)
+                except Exception:
+                    token_json = None
+
+        if not token_json:
             return None
 
         try:
-            creds = Credentials.from_authorized_user_file(
-                str(token_file),
+            creds = Credentials.from_authorized_user_info(
+                __import__("json").loads(token_json),
                 SCOPES
             )
 
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
+                token_json = creds.to_json()
+                self._save_token(session_id, token_json)
 
-                token_file.write_text(
-                    creds.to_json(),
-                    encoding="utf-8"
-                )
+                # Keep local development fallback in sync.
+                token_file = TOKEN_DIR / f"{session_id}.json"
+                token_file.write_text(token_json, encoding="utf-8")
 
             return creds if creds and creds.valid else None
 
