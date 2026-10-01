@@ -23,10 +23,26 @@ app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:8000", "http
 @app.on_event("startup")
 def startup(): init_db()
 
-def setting(db, key):
+def session_id(request: Request):
+    sid = request.session.get("session_id")
+    if not sid:
+        sid = secrets.token_urlsafe(32)
+        request.session["session_id"] = sid
+    return sid
+
+def scoped_id(sid, value):
+    return f"{sid}:{value}"
+
+def unscoped_id(sid, value):
+    prefix = f"{sid}:"
+    return value[len(prefix):] if value.startswith(prefix) else value
+
+def setting(db, key, sid=None):
+    key = scoped_id(sid, key) if sid else key
     row = db.get(Setting, key); return row.value if row else None
 
-def set_setting(db, key, value):
+def set_setting(db, key, value, sid=None):
+    key = scoped_id(sid, key) if sid else key
     row = db.get(Setting, key)
     if not row: row = Setting(key=key); db.add(row)
     row.value = value; db.commit()
