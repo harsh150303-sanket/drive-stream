@@ -50,10 +50,12 @@ def set_setting(db, key, value, sid=None):
     if not row: row = Setting(key=key); db.add(row)
     row.value = value; db.commit()
 
-def playback_token(sid, file_id, ttl=86400):
+def playback_token(sid, file_id, size, mime_type, ttl=86400):
     payload = {
         "sid": sid,
         "file_id": file_id,
+        "size": int(size),
+        "mime_type": mime_type or "application/octet-stream",
         "exp": int(time.time()) + ttl,
     }
     raw = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
@@ -78,8 +80,8 @@ def verify_playback_token(token):
         return None
 
 
-def playback_url(file_id, token):
-    base = settings.google_redirect_uri.rsplit("/auth/callback", 1)[0].rstrip("/")
+def playback_url(request, file_id, token):
+    base = str(request.base_url).rstrip("/")
     return f"{base}/api/videos/{quote(file_id, safe='')}/stream?token={quote(token, safe='')}"
 
 
@@ -184,20 +186,26 @@ def playback(file_id: str, request: Request):
         raise HTTPException(404, "Video not found or no longer accessible.")
     if not is_video(meta):
         raise HTTPException(400, "Unsupported video type.")
-    return {"url": playback_url(file_id, playback_token(sid, file_id))}
+    return {"url": playback_url(request, file_id, playback_token(sid, file_id, meta.get("size"), meta.get("mimeType")))}
 
 @app.get("/api/videos/{file_id}/stream")
 def stream(file_id: str, request: Request, token: str | None = None):
     sid = session_id(request)
-    if token:
-        payload = verify_playback_token(token)
-        if not payload or payload["file_id"] != file_id:
-            raise HTTPException(403, "Invalid or expired playback link.")
+    payload = verify_playback_token(token) if token else None
+    if token and (not payload or payload["file_id"] != file_id):
+        raise HTTPException(403, "Invalid or expired playback link.")
+
+    if payload:
         sid = payload["sid"]
-    try: meta=drive.get_file(file_id, sid)
-    except Exception: raise HTTPException(404,"Video not found or no longer accessible.")
-    if not is_video(meta): raise HTTPException(400,"Unsupported video type.")
-    size=meta.get("size")
+        size = int(payload["size"])
+        mime_type = payload.get("mime_type") or "application/octet-stream"
+    else:
+        try: meta=drive.get_file(file_id, sid)
+        except Exception: raise HTTPException(404,"Video not found or no longer accessible.")
+        if not is_video(meta): raise HTTPException(400,"Unsupported video type.")
+        size=meta.get("size")
+        mime_type=meta.get("mimeType") or "application/octet-stream"
+
     if size is None: raise HTTPException(400,"Drive did not provide a streamable file size.")
     try: br=parse_range(request.headers.get("range"), int(size))
     except RangeError: return Response(status_code=416, headers={"Content-Range":f"bytes */{size}"})
@@ -209,7 +217,7 @@ def stream(file_id: str, request: Request, token: str | None = None):
     if br and r.status_code != 206:
         # Some intermediaries may ignore Range. Do not silently send an oversized body.
         r.close(); raise HTTPException(502,"Google Drive did not honor the requested byte range.")
-    headers={"Accept-Ranges":"bytes","Content-Type":meta.get("mimeType") or "application/octet-stream","Cache-Control":"no-store"}
+    headers={"Accept-Ranges":"bytes","Content-Type":mime_type,"Cache-Control":"no-store"}
     if br:
         end=br.end; length=end-br.start+1
         headers.update({"Content-Range":f"bytes {br.start}-{end}/{size}","Content-Length":str(length)})
@@ -221,7 +229,7 @@ def stream(file_id: str, request: Request, token: str | None = None):
             for chunk in r.iter_content(chunk_size=1024*1024):
                 if chunk: yield chunk
         finally: r.close()
-    return StreamingResponse(iterator(), status_code=status, headers=headers, media_type=meta.get("mimeType"))
+    return StreamingResponse(iterator(), status_code=status, headers=headers, media_type=mime_type)
 
 @app.get("/api/search")
 def search(q: str, request: Request, db: Session=Depends(get_db)):
