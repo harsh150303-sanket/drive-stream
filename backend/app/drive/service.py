@@ -21,11 +21,11 @@ FOLDER_MIME = "application/vnd.google-apps.folder"
 
 class DriveService:
 
-    def creds(self):
-        return oauth.credentials()
+    def creds(self, session_id: str):
+        return oauth.credentials(session_id)
 
-    def api(self):
-        c = self.creds()
+    def api(self, session_id: str):
+        c = self.creds(session_id)
 
         if not c:
             return None
@@ -37,8 +37,8 @@ class DriveService:
             cache_discovery=False
         )
 
-    def list_root(self):
-        svc = self.api()
+    def list_root(self, session_id: str):
+        svc = self.api(session_id)
 
         if not svc:
             raise PermissionError(
@@ -75,8 +75,8 @@ class DriveService:
 
         return items
 
-    def list_children(self, folder_id: str):
-        svc = self.api()
+    def list_children(self, folder_id: str, session_id: str):
+        svc = self.api(session_id)
 
         if not svc:
             raise PermissionError(
@@ -113,8 +113,8 @@ class DriveService:
 
         return items
 
-    def get_file(self, file_id: str):
-        svc = self.api()
+    def get_file(self, file_id: str, session_id: str):
+        svc = self.api(session_id)
 
         if not svc:
             raise PermissionError(
@@ -130,8 +130,8 @@ class DriveService:
             )
         ).execute()
 
-    def search(self, root_id: str, qtext: str):
-        svc = self.api()
+    def search(self, root_id: str, qtext: str, session_id: str):
+        svc = self.api(session_id)
 
         if not svc:
             raise PermissionError(
@@ -161,9 +161,10 @@ class DriveService:
     def stream_request(
         self,
         file_id: str,
-        byte_range: str | None = None
+        byte_range: str | None = None,
+        session_id: str = ""
     ):
-        creds = self.creds()
+        creds = self.creds(session_id)
 
         if not creds:
             raise PermissionError(
@@ -189,8 +190,8 @@ class DriveService:
             timeout=60
         )
 
-    def thumbnail(self, file_id: str):
-        f = self.get_file(file_id)
+    def thumbnail(self, file_id: str, session_id: str):
+        f = self.get_file(file_id, session_id)
 
         return f.get("thumbnailLink")
 
