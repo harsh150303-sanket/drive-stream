@@ -7,3 +7,4 @@ requests>=2.32,<3
 SQLAlchemy>=2.0,<3
 pydantic-settings>=2.6,<3
 python-multipart>=0.0.9,<1
+itsdangerous>=2.2,<3
