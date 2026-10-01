@@ -25,7 +25,7 @@ class OAuthManager:
                 "client_secret": settings.google_client_secret,
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [settings.google_redirect_uri],
+                "redirect_uris": [f"{settings.frontend_url.rstrip('/')}/auth/callback"],
             }
         }
 
@@ -34,7 +34,7 @@ class OAuthManager:
             self._client_config(),
             scopes=SCOPES,
             state=state,
-            redirect_uri=settings.google_redirect_uri,
+            redirect_uri=f"{settings.frontend_url.rstrip('/')}/auth/callback",
             autogenerate_code_verifier=False,
         )
 
