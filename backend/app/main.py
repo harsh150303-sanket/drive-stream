@@ -17,7 +17,7 @@ from .drive.service import drive, is_video, FOLDER_MIME
 from .streaming.range import parse_range, RangeError
 
 app = FastAPI(title="DriveStream", version="1.0.0")
-app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, https_only=True, same_site="lax")
+app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, https_only=settings.frontend_url.startswith("https://"), same_site="lax")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:8000", "http://127.0.0.1:8000", settings.frontend_url], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 @app.on_event("startup")
@@ -120,7 +120,7 @@ def folder(folder_id: str, request: Request, db: Session = Depends(get_db)):
     except PermissionError as e: raise HTTPException(401,str(e))
     except Exception: raise HTTPException(502,"Google Drive could not be read.")
     favs={x.google_drive_id for x in db.scalars(select(Favorite)).all() if x.google_drive_id.startswith(f"{sid}:")}
-    return {"items":[public_file(x, x.get("id") in favs) for x in items if x.get("mimeType")==FOLDER_MIME or is_video(x)]}
+    return {"items":[public_file(x, scoped_id(sid, x.get("id")) in favs) for x in items if x.get("mimeType")==FOLDER_MIME or is_video(x)]}
 
 @app.get("/api/videos/{file_id}")
 def video(file_id: str, request: Request, db: Session=Depends(get_db)):
@@ -142,7 +142,7 @@ def thumbnail(file_id: str, request: Request):
 @app.get("/api/videos/{file_id}/stream")
 def stream(file_id: str, request: Request):
     sid = session_id(request)
-    try: meta=drive.get_file(file_id)
+    try: meta=drive.get_file(file_id, sid)
     except Exception: raise HTTPException(404,"Video not found or no longer accessible.")
     if not is_video(meta): raise HTTPException(400,"Unsupported video type.")
     size=meta.get("size")
@@ -182,11 +182,12 @@ def search(q: str, request: Request, db: Session=Depends(get_db)):
     favs = {
         x.google_drive_id
         for x in db.scalars(select(Favorite)).all()
+        if x.google_drive_id.startswith(f"{sid}:")
     }
 
     return {
         "items": [
-            public_file(x, x.get("id") in favs)
+            public_file(x, scoped_id(sid, x.get("id")) in favs)
             for x in items
             if is_video(x)
         ]
