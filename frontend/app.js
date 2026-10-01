@@ -513,7 +513,7 @@ function card(f) {
             onclick="${
                 f.isFolder
                     ? `openFolder('${f.id}', true, '${esc(f.name)}')`
-                    : `openVideo('${f.id}')`
+                    : `event.ctrlKey || event.metaKey ? openVideoInNewTab('${f.id}') : openVideo('${f.id}')`
             }"
             ${!f.isFolder ? `onmouseenter="schedulePreview('${f.id}', this)" onmouseleave="stopPreview('${f.id}', this)"` : ''}
         >
@@ -614,6 +614,34 @@ async function connect() {
 /* =========================
    VIDEO PLAYER
 ========================= */
+
+async function openVideoInNewTab(id) {
+    // Open the tab synchronously so the browser does not block it as a popup.
+    const tab = window.open('about:blank', '_blank');
+
+    if (!tab) {
+        toast('Please allow pop-ups for DriveStream.');
+        return;
+    }
+
+    try {
+        let playbackUrl = state.playbackUrls.get(id);
+
+        if (!playbackUrl) {
+            const x = await api(
+                '/api/videos/' + encodeURIComponent(id) + '/playback'
+            );
+            playbackUrl = x.url;
+            state.playbackUrls.set(id, playbackUrl);
+        }
+
+        tab.location.href = playbackUrl;
+    } catch (e) {
+        tab.close();
+        toast(e.message);
+    }
+}
+
 
 async function openVideo(id) {
     try {
