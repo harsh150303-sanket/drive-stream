@@ -103,11 +103,11 @@ def drive_root(request: Request, db: Session = Depends(get_db)):
     except Exception:
         raise HTTPException(502, "Google Drive could not be read.")
 
-    favs = {x.google_drive_id for x in db.scalars(select(Favorite)).all()}
+    favs = {x.google_drive_id for x in db.scalars(select(Favorite)).all() if x.google_drive_id.startswith(f"{sid}:")}
 
     return {
         "items": [
-            public_file(x, x.get("id") in favs)
+            public_file(x, scoped_id(sid, x.get("id")) in favs)
             for x in items
             if x.get("mimeType") == FOLDER_MIME or is_video(x)
         ]
@@ -119,7 +119,7 @@ def folder(folder_id: str, request: Request, db: Session = Depends(get_db)):
     try: items=drive.list_children(folder_id, sid)
     except PermissionError as e: raise HTTPException(401,str(e))
     except Exception: raise HTTPException(502,"Google Drive could not be read.")
-    favs={x.google_drive_id for x in db.scalars(select(Favorite)).all()}
+    favs={x.google_drive_id for x in db.scalars(select(Favorite)).all() if x.google_drive_id.startswith(f"{sid}:")}
     return {"items":[public_file(x, x.get("id") in favs) for x in items if x.get("mimeType")==FOLDER_MIME or is_video(x)]}
 
 @app.get("/api/videos/{file_id}")
@@ -128,7 +128,7 @@ def video(file_id: str, request: Request, db: Session=Depends(get_db)):
     try: f=drive.get_file(file_id, sid)
     except Exception: raise HTTPException(404,"Video not found or no longer accessible.")
     if not is_video(f): raise HTTPException(400,"This file is not a supported video.")
-    fav=db.scalar(select(Favorite).where(Favorite.google_drive_id==file_id)) is not None
+    fav=db.scalar(select(Favorite).where(Favorite.google_drive_id==scoped_id(sid,file_id))) is not None
     return public_file(f,fav)
 
 @app.get("/api/videos/{file_id}/thumbnail")
