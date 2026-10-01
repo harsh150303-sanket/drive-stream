@@ -171,6 +171,17 @@ function render(err) {
 }
 
 
+function stopActivePlayer() {
+    const v = $('#video');
+    if (!v) return;
+
+    try {
+        v.pause();
+        v.removeAttribute('src');
+        v.load();
+    } catch {}
+}
+
 function renderView() {
     const m = $('#main');
 
@@ -587,6 +598,7 @@ async function connect() {
 
 async function openVideo(id) {
     try {
+        stopActivePlayer();
         let f = state.items.find(x => x.id === id);
         if (!f) f = await api('/api/videos/' + encodeURIComponent(id));
 
@@ -623,6 +635,7 @@ function getVideoIndex() {
 
 
 function previousVideo() {
+    stopActivePlayer();
     const videos = getCurrentVideoList();
     const index = getVideoIndex();
 
@@ -636,6 +649,7 @@ function previousVideo() {
 
 
 function nextVideo() {
+    stopActivePlayer();
     const videos = getCurrentVideoList();
     const index = getVideoIndex();
 
@@ -754,6 +768,7 @@ function playerHTML(f) {
 
 
 function closePlayer() {
+    stopActivePlayer();
     state.player = null;
     renderView();
 }
@@ -1158,7 +1173,7 @@ async function startPreview(id, cardEl) {
         const stop = () => {
             if (video.currentTime >= 30) stopPreview(id, cardEl);
         };
-        video.addEventListener('timeupdate', stop);
+        video.ontimeupdate = stop;
         video.play().catch(() => {});
     } catch {}
 }
@@ -1173,6 +1188,7 @@ function stopPreview(id, cardEl) {
     const video = cardEl?.querySelector('.preview');
     if (video) {
         video.pause();
+        video.ontimeupdate = null;
         video.removeAttribute('src');
         video.load();
     }
