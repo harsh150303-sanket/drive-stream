@@ -355,6 +355,7 @@ async function openRoot(pushHistory = true, force = false) {
 
         state.items = items;
         state.view = 'home';
+        stopActivePlayer();
         state.player = null;
         state.navPath = [];
 
@@ -409,6 +410,7 @@ async function openFolder(id, pushHistory = true, folderName = null, force = fal
 
         state.items = items;
         state.view = 'all';
+        stopActivePlayer();
         state.player = null;
 
         localStorage.setItem('drivestream_last_folder', id);
@@ -914,6 +916,7 @@ async function search() {
 
         state.items = x.items;
         state.view = 'all';
+        stopActivePlayer();
         state.player = null;
 
         renderView();
@@ -1113,6 +1116,7 @@ async function refreshCurrentFolder() {
 ========================= */
 
 function nav(v) {
+    stopActivePlayer();
     state.view = v;
     state.player = null;
 
