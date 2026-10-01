@@ -187,7 +187,7 @@ class DriveService:
             url,
             headers=headers,
             stream=True,
-            timeout=60
+            timeout=(15, 300)
         )
 
     def thumbnail(self, file_id: str, session_id: str):
