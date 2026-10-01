@@ -10,6 +10,7 @@ const state = {
     player: null,
     navPath: [],
     folderCache: new Map(),
+    playbackUrls: new Map(),
     lastProgressSave: 0
 };
 
@@ -588,7 +589,15 @@ async function openVideo(id) {
     try {
         let f = state.items.find(x => x.id === id);
         if (!f) f = await api('/api/videos/' + encodeURIComponent(id));
-        state.player = f;
+
+        let playbackUrl = state.playbackUrls.get(id);
+        if (!playbackUrl) {
+            const x = await api('/api/videos/' + encodeURIComponent(id) + '/playback');
+            playbackUrl = x.url;
+            state.playbackUrls.set(id, playbackUrl);
+        }
+
+        state.player = { ...f, playbackUrl };
         renderView();
     } catch (e) {
         toast(e.message);
@@ -663,7 +672,7 @@ function playerHTML(f) {
                 controls
                 playsinline
                 preload="metadata"
-                src="/api/videos/${f.id}/stream"
+                src="${f.playbackUrl || ''}"
             ></video>
 
             <div class="playerhead">
@@ -1116,20 +1125,31 @@ function schedulePreview(id, cardEl) {
     previewTimers.set(id, setTimeout(() => startPreview(id, cardEl), 500));
 }
 
-function startPreview(id, cardEl) {
+async function startPreview(id, cardEl) {
     previewTimers.delete(id);
     const video = cardEl.querySelector('.preview');
     if (!video) return;
 
-    video.src = '/api/videos/' + encodeURIComponent(id) + '/stream';
-    video.currentTime = 0;
-    video.muted = true;
+    try {
+        let url = state.playbackUrls.get(id);
+        if (!url) {
+            const x = await api('/api/videos/' + encodeURIComponent(id) + '/playback');
+            url = x.url;
+            state.playbackUrls.set(id, url);
+        }
 
-    const stop = () => {
-        if (video.currentTime >= 30) stopPreview(id, cardEl);
-    };
-    video.addEventListener('timeupdate', stop);
-    video.play().catch(() => {});
+        if (!document.body.contains(cardEl)) return;
+
+        video.src = url;
+        video.currentTime = 0;
+        video.muted = true;
+
+        const stop = () => {
+            if (video.currentTime >= 30) stopPreview(id, cardEl);
+        };
+        video.addEventListener('timeupdate', stop);
+        video.play().catch(() => {});
+    } catch {}
 }
 
 function stopPreview(id, cardEl) {
