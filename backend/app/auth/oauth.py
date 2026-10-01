@@ -8,7 +8,6 @@ from ..config import settings, TOKEN_DIR
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
-TOKEN_FILE = TOKEN_DIR / "credentials.json"
 
 
 class OAuthManager:
@@ -50,37 +49,39 @@ class OAuthManager:
 
         return url, state
 
-    def handle_callback(self, code: str, state: str | None):
+    def handle_callback(self, code: str, state: str | None, session_id: str):
         flow = self.flow(state=state)
 
         flow.fetch_token(code=code)
 
         TOKEN_DIR.mkdir(parents=True, exist_ok=True)
 
-        TOKEN_FILE.write_text(
+        token_file = TOKEN_DIR / f"{session_id}.json"
+        token_file.write_text(
             flow.credentials.to_json(),
             encoding="utf-8"
         )
 
         try:
-            TOKEN_FILE.chmod(0o600)
+            token_file.chmod(0o600)
         except OSError:
             pass
 
-    def credentials(self):
-        if not TOKEN_FILE.exists():
+    def credentials(self, session_id: str):
+        token_file = TOKEN_DIR / f"{session_id}.json"
+        if not token_file.exists():
             return None
 
         try:
             creds = Credentials.from_authorized_user_file(
-                str(TOKEN_FILE),
+                str(token_file),
                 SCOPES
             )
 
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
 
-                TOKEN_FILE.write_text(
+                token_file.write_text(
                     creds.to_json(),
                     encoding="utf-8"
                 )
