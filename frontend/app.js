@@ -687,12 +687,23 @@ function playerHTML(f) {
                     </div>
                 </div>
 
-                <button
-                    class="primary"
-                    onclick="toggleFav('${f.id}', ${!!f.favorite})"
-                >
-                    ${f.favorite ? '★ Favorited' : '☆ Favorite'}
-                </button>
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <a
+                        class="ghost"
+                        href="${esc(f.playbackUrl || '')}"
+                        target="_blank"
+                        rel="noopener"
+                    >
+                        ↗ Open in new tab
+                    </a>
+
+                    <button
+                        class="primary"
+                        onclick="toggleFav('${f.id}', ${!!f.favorite})"
+                    >
+                        ${f.favorite ? '★ Favorited' : '☆ Favorite'}
+                    </button>
+                </div>
 
             </div>
 
