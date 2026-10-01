@@ -1,9 +1,12 @@
 from pathlib import Path
+import secrets
+import hmac
 from datetime import datetime, timezone
 from urllib.parse import quote
 from fastapi import FastAPI, Depends, Request, Response, HTTPException
 from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from sqlalchemy import select, delete
@@ -14,6 +17,7 @@ from .drive.service import drive, is_video, FOLDER_MIME
 from .streaming.range import parse_range, RangeError
 
 app = FastAPI(title="DriveStream", version="1.0.0")
+app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, https_only=True, same_site="lax")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:8000", "http://127.0.0.1:8000", settings.frontend_url], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 @app.on_event("startup")
