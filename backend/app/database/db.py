@@ -49,6 +49,16 @@ class Setting(Base):
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
     value: Mapped[str] = mapped_column(Text, default="")
 
+class OAuthToken(Base):
+    __tablename__ = "oauth_tokens"
+    session_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    token_json: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
 def init_db():
     Base.metadata.create_all(engine)
 
