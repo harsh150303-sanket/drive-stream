@@ -1,6 +1,9 @@
 from pathlib import Path
 import secrets
 import hmac
+import base64
+import json
+import time
 from datetime import datetime, timezone
 from urllib.parse import quote
 from fastapi import FastAPI, Depends, Request, Response, HTTPException
@@ -46,6 +49,39 @@ def set_setting(db, key, value, sid=None):
     row = db.get(Setting, key)
     if not row: row = Setting(key=key); db.add(row)
     row.value = value; db.commit()
+
+def playback_token(sid, file_id, ttl=86400):
+    payload = {
+        "sid": sid,
+        "file_id": file_id,
+        "exp": int(time.time()) + ttl,
+    }
+    raw = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
+    sig = hmac.new(settings.session_secret.encode(), raw.encode(), "sha256").hexdigest()
+    return f"{raw}.{sig}"
+
+
+def verify_playback_token(token):
+    try:
+        raw, sig = token.rsplit(".", 1)
+        expected = hmac.new(settings.session_secret.encode(), raw.encode(), "sha256").hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            return None
+        padded = raw + "=" * (-len(raw) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded).decode())
+        if int(payload.get("exp", 0)) < int(time.time()):
+            return None
+        if not payload.get("sid") or not payload.get("file_id"):
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+def playback_url(file_id, token):
+    base = settings.google_redirect_uri.rsplit("/auth/callback", 1)[0].rstrip("/")
+    return f"{base}/api/videos/{quote(file_id, safe='')}/stream?token={quote(token, safe='')}"
+
 
 def public_file(f, fav=False):
     return {"id":f.get("id"),"name":f.get("name"),"mimeType":f.get("mimeType"),"size":int(f["size"]) if f.get("size") else None,"modifiedTime":f.get("modifiedTime"),"createdTime":f.get("createdTime"),"parents":f.get("parents",[]),"thumbnail":f.get("thumbnailLink"),"isFolder":f.get("mimeType")==FOLDER_MIME,"favorite":fav}
@@ -139,9 +175,25 @@ def thumbnail(file_id: str, request: Request):
     if not url: raise HTTPException(404,"Thumbnail unavailable.")
     return RedirectResponse(url)
 
-@app.get("/api/videos/{file_id}/stream")
-def stream(file_id: str, request: Request):
+@app.get("/api/videos/{file_id}/playback")
+def playback(file_id: str, request: Request):
     sid = session_id(request)
+    try:
+        meta = drive.get_file(file_id, sid)
+    except Exception:
+        raise HTTPException(404, "Video not found or no longer accessible.")
+    if not is_video(meta):
+        raise HTTPException(400, "Unsupported video type.")
+    return {"url": playback_url(file_id, playback_token(sid, file_id))}
+
+@app.get("/api/videos/{file_id}/stream")
+def stream(file_id: str, request: Request, token: str | None = None):
+    sid = session_id(request)
+    if token:
+        payload = verify_playback_token(token)
+        if not payload or payload["file_id"] != file_id:
+            raise HTTPException(403, "Invalid or expired playback link.")
+        sid = payload["sid"]
     try: meta=drive.get_file(file_id, sid)
     except Exception: raise HTTPException(404,"Video not found or no longer accessible.")
     if not is_video(meta): raise HTTPException(400,"Unsupported video type.")
