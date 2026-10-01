@@ -192,51 +192,58 @@ def search(q: str, request: Request, db: Session=Depends(get_db)):
         ]
     }
 @app.get("/api/history")
-def history(db: Session=Depends(get_db)):
-    rows=db.scalars(select(WatchHistory).order_by(WatchHistory.last_watched.desc()).limit(50)).all()
-    return {"items":[{"id":r.google_drive_id,"filename":r.filename,"position":r.position,"duration":r.duration,"lastWatched":r.last_watched.isoformat()} for r in rows]}
+def history(request: Request, db: Session=Depends(get_db)):
+    sid = session_id(request)
+    rows=db.scalars(select(WatchHistory).where(WatchHistory.google_drive_id.like(f"{sid}:%")).order_by(WatchHistory.last_watched.desc()).limit(50)).all()
+    return {"items":[{"id":unscoped_id(sid,r.google_drive_id),"filename":r.filename,"position":r.position,"duration":r.duration,"lastWatched":r.last_watched.isoformat()} for r in rows]}
 
 @app.post("/api/history")
 async def save_history(request: Request, db: Session=Depends(get_db)):
+    sid = session_id(request)
     p=await request.json(); gid=p.get("id")
     if not gid: raise HTTPException(400,"Missing video id")
-    row=db.scalar(select(WatchHistory).where(WatchHistory.google_drive_id==gid))
-    if not row: row=WatchHistory(google_drive_id=gid); db.add(row)
+    row=db.scalar(select(WatchHistory).where(WatchHistory.google_drive_id==scoped_id(sid,gid)))
+    if not row: row=WatchHistory(google_drive_id=scoped_id(sid,gid)); db.add(row)
     row.filename=str(p.get("filename",row.filename)); row.position=float(p.get("position",0)); row.duration=float(p.get("duration",0)); row.last_watched=datetime.now(timezone.utc); db.commit()
     return {"ok":True}
 
 @app.get("/api/favorites")
-def favorites(db: Session=Depends(get_db)):
-    rows=db.scalars(select(Favorite).order_by(Favorite.created_at.desc())).all(); out=[]
+def favorites(request: Request, db: Session=Depends(get_db)):
+    sid = session_id(request)
+    rows=db.scalars(select(Favorite).where(Favorite.google_drive_id.like(f"{sid}:%")).order_by(Favorite.created_at.desc())).all(); out=[]
     for r in rows:
-        try: f=drive.get_file(r.google_drive_id); out.append(public_file(f,True))
+        try: gid=unscoped_id(sid,r.google_drive_id); f=drive.get_file(gid, sid); out.append(public_file(f,True))
         except Exception: pass
     return {"items":out}
 
 @app.post("/api/favorites/{file_id}")
-def add_favorite(file_id: str, db: Session=Depends(get_db)):
-    if not db.scalar(select(Favorite).where(Favorite.google_drive_id==file_id)): db.add(Favorite(google_drive_id=file_id)); db.commit()
+def add_favorite(file_id: str, request: Request, db: Session=Depends(get_db)):
+    sid = session_id(request)
+    key = scoped_id(sid,file_id)
+    if not db.scalar(select(Favorite).where(Favorite.google_drive_id==key)): db.add(Favorite(google_drive_id=key)); db.commit()
     return {"ok":True}
 
 @app.delete("/api/favorites/{file_id}")
-def remove_favorite(file_id: str, db: Session=Depends(get_db)):
-    db.execute(delete(Favorite).where(Favorite.google_drive_id==file_id)); db.commit(); return {"ok":True}
+def remove_favorite(file_id: str, request: Request, db: Session=Depends(get_db)):
+    sid = session_id(request)
+    db.execute(delete(Favorite).where(Favorite.google_drive_id==scoped_id(sid,file_id))); db.commit(); return {"ok":True}
 
 @app.post("/api/sync")
-def sync(db: Session = Depends(get_db)):
+def sync(request: Request, db: Session = Depends(get_db)):
+    sid = session_id(request)
     # Refresh My Drive; folder navigation reads Drive live.
     items = drive.list_root(sid)
 
     for f in items:
         row = db.scalar(
             select(FileCache).where(
-                FileCache.google_drive_id == f["id"]
+                FileCache.google_drive_id == scoped_id(sid,f["id"])
             )
         )
 
         if not row:
             row = FileCache(
-                google_drive_id=f["id"]
+                google_drive_id=scoped_id(sid,f["id"])
             )
             db.add(row)
 
@@ -259,7 +266,7 @@ def sync(db: Session = Depends(get_db)):
         "count": len(items)
     }
 @app.get("/api/settings")
-def settings_api(db: Session=Depends(get_db)):
-    return {"rootFolderId": "root"}
+def settings_api(request: Request, db: Session=Depends(get_db)):
+    return {"rootFolderId": setting(db, "root_folder_id", session_id(request)) or "root"}
 if FRONTEND_DIR.exists():
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
